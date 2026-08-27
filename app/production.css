@@ -1,6 +1,210 @@
-/* Evidence-driven production refinement layered after globals.css. */
+/* Production refinements layered after globals.css. */
+.lensOverlayRoot {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  pointer-events: none;
+}
+
 .lensBackdrop {
   display: none;
+}
+
+.lensPanel {
+  width: 336px;
+  max-height: calc(100dvh - 150px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  pointer-events: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(98, 220, 255, 0.18) transparent;
+}
+
+.lensPanel::-webkit-scrollbar {
+  width: 5px;
+}
+
+.lensPanel::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(98, 220, 255, 0.18);
+}
+
+.lensDimensionTabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding: 8px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.012);
+}
+
+.lensDimensionTabs button,
+.lensViewModes button {
+  min-width: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #74858c;
+  font: 550 8px/1 var(--font-geist-mono);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 160ms ease, color 160ms ease, box-shadow 160ms ease;
+}
+
+.lensDimensionTabs button {
+  padding: 8px 6px;
+}
+
+.lensDimensionTabs button.active,
+.lensViewModes button.active {
+  color: #e2f8ff;
+  background: rgba(98, 220, 255, 0.085);
+  box-shadow: inset 0 0 0 1px rgba(98, 220, 255, 0.16);
+}
+
+.lensDimensionTabs button:focus-visible,
+.lensViewModes button:focus-visible,
+.lensTelemetry button:focus-visible,
+.lensModes button:focus-visible {
+  outline: 1px solid var(--cyan);
+  outline-offset: 1px;
+}
+
+.lensViewModes {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.lensViewModes button {
+  padding: 7px 3px;
+}
+
+.poleLensCanvas {
+  position: relative;
+  height: clamp(220px, 30vh, 272px);
+  min-height: 220px;
+  overflow: hidden;
+  border-bottom: 1px solid var(--line);
+  background: radial-gradient(circle at 50% 48%, rgba(98, 220, 255, 0.07), transparent 58%), #050b0e;
+}
+
+.poleLensCanvas canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+  touch-action: none;
+}
+
+.lens3dHud {
+  position: absolute;
+  right: 10px;
+  bottom: 9px;
+  left: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  pointer-events: none;
+}
+
+.lens3dHud span {
+  min-width: 0;
+  color: #6e8088;
+  font: 500 7px/1.2 var(--font-geist-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.lens3dHud span:last-child {
+  text-align: right;
+}
+
+.lensTelemetry {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border-bottom: 1px solid var(--line);
+}
+
+.lensTelemetry button {
+  min-width: 0;
+  padding: 11px 12px 12px;
+  border: 0;
+  border-right: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.008);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition: background 160ms ease, box-shadow 160ms ease;
+}
+
+.lensTelemetry button:last-child {
+  border-right: 0;
+}
+
+.lensTelemetry button:hover,
+.lensTelemetry button.active {
+  background: rgba(98, 220, 255, 0.045);
+}
+
+.lensTelemetry button.active {
+  box-shadow: inset 0 2px 0 rgba(98, 220, 255, 0.65);
+}
+
+.lensTelemetry span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #86979e;
+  font: 500 7px/1 var(--font-geist-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.lensTelemetry i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.lensTelemetry .fig {
+  background: var(--cyan);
+  box-shadow: 0 0 8px rgba(98, 220, 255, 0.6);
+}
+
+.lensTelemetry .spin {
+  background: #f3f7f8;
+}
+
+.lensTelemetry strong {
+  display: block;
+  margin-top: 7px;
+  overflow: hidden;
+  color: #e7f0f2;
+  font: 540 13px/1 var(--font-geist-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lensTelemetry small {
+  display: block;
+  margin-top: 6px;
+  overflow: hidden;
+  color: #6f8088;
+  font: 500 7px/1.35 var(--font-geist-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lensPanel.is2d .lensViz {
+  height: 230px;
+}
+
+.lensPanel.is3d .lensExplain {
+  color: #71838b;
 }
 
 .benchmarkContext {
@@ -84,6 +288,7 @@
   .lensPanel {
     right: 294px;
     bottom: 122px;
+    width: 324px;
   }
 
   .benchmarkContext {
@@ -96,44 +301,60 @@
     display: none;
   }
 
+  .lensOverlayRoot {
+    z-index: 11;
+  }
+
   .lensBackdrop {
     display: block;
     position: absolute;
-    z-index: 11;
+    z-index: 1;
     inset: 64px 0 0;
     padding: 0;
     border: 0;
     border-radius: 0;
     background: rgba(1, 4, 6, 0.74);
     backdrop-filter: blur(9px);
+    pointer-events: auto;
     cursor: pointer;
   }
 
   .lensPanel {
     display: flex;
     flex-direction: column;
-    z-index: 12;
+    z-index: 2;
     top: 74px;
     right: 10px;
     bottom: 10px;
     left: 10px;
     width: auto;
     max-height: none;
+    overflow: hidden;
     border-radius: 20px;
   }
 
-  .lensViz {
-    flex: 1 1 auto;
-    height: auto;
-    min-height: 230px;
+  .lensHead,
+  .lensDimensionTabs,
+  .lensModes,
+  .lensViewModes,
+  .lensTelemetry,
+  .lensExplain {
+    flex: 0 0 auto;
   }
 
-  .lensViz .r1 {
+  .poleLensCanvas,
+  .lensPanel.is2d .lensViz {
+    flex: 1 1 auto;
+    height: auto;
+    min-height: 210px;
+  }
+
+  .lensPanel.is2d .lensViz .r1 {
     width: min(180px, 42vw);
     height: min(180px, 42vw);
   }
 
-  .lensViz .r2 {
+  .lensPanel.is2d .lensViz .r2 {
     width: min(320px, 74vw);
     height: min(320px, 74vw);
   }
@@ -143,14 +364,50 @@
   }
 }
 
+@media (max-width: 470px) {
+  .lensViewModes button,
+  .lensDimensionTabs button,
+  .lensModes button {
+    font-size: 7px;
+  }
+
+  .lensTelemetry button {
+    padding: 10px 9px 11px;
+  }
+
+  .lensTelemetry strong {
+    font-size: 11px;
+  }
+
+  .lensTelemetry small {
+    font-size: 6px;
+  }
+}
+
 @media (max-width: 700px) and (max-height: 700px) {
   .lensPanel {
     top: 68px;
     bottom: 8px;
   }
 
-  .lensViz {
-    min-height: 190px;
+  .lensHead {
+    height: 46px;
+  }
+
+  .lensDimensionTabs,
+  .lensModes {
+    padding-top: 5px;
+    padding-bottom: 5px;
+  }
+
+  .lensViewModes {
+    padding-top: 4px;
+    padding-bottom: 4px;
+  }
+
+  .poleLensCanvas,
+  .lensPanel.is2d .lensViz {
+    min-height: 170px;
   }
 
   .lensExplain {

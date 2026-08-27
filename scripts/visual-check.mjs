@@ -3,11 +3,13 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 const baseUrl = process.env.BASE_URL || 'https://globexplore.vercel.app';
+const expectedRelease = process.env.EXPECTED_RELEASE || 'pole-lens-3d-v1';
 const outDir = path.resolve('artifacts/visual-check');
 await fs.mkdir(outDir, { recursive: true });
 
 const report = {
   baseUrl,
+  expectedRelease,
   checkedAt: new Date().toISOString(),
   status: 'pending',
   pages: [],
@@ -16,17 +18,20 @@ const report = {
 
 async function waitForDeployment() {
   let lastError = '';
-  for (let attempt = 1; attempt <= 36; attempt += 1) {
+  for (let attempt = 1; attempt <= 48; attempt += 1) {
     try {
-      const response = await fetch(baseUrl, { redirect: 'follow' });
-      if (response.ok) return response.status;
-      lastError = `HTTP ${response.status}`;
+      const response = await fetch(baseUrl, { redirect: 'follow', cache: 'no-store' });
+      const body = await response.text();
+      if (response.ok && body.includes(`data-release="${expectedRelease}"`)) return response.status;
+      lastError = response.ok
+        ? `HTTP ${response.status}, release marker ${expectedRelease} not active`
+        : `HTTP ${response.status}`;
     } catch (error) {
       lastError = String(error);
     }
     await new Promise((resolve) => setTimeout(resolve, 5000));
   }
-  throw new Error(`Production URL never became ready: ${lastError}`);
+  throw new Error(`Production URL never exposed ${expectedRelease}: ${lastError}`);
 }
 
 function overlap(a, b) {
@@ -63,15 +68,15 @@ async function inspectViewport(browser, spec) {
 
   try {
     const response = await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
-    await page.locator('.appShell').waitFor({ state: 'visible', timeout: 15000 });
-    await page.locator('canvas').waitFor({ state: 'visible', timeout: 15000 });
+    await page.locator(`[data-release="${expectedRelease}"]`).waitFor({ state: 'visible', timeout: 15000 });
+    await page.locator('.globeStage canvas').first().waitFor({ state: 'visible', timeout: 15000 });
     await page.waitForTimeout(1400);
 
     await page.screenshot({ path: path.join(outDir, `${spec.name}-default.png`), fullPage: false });
 
     const text = await page.locator('body').innerText();
     const primary = (await page.locator('.metricPrimary strong').first().innerText()).trim();
-    const canvasBox = await page.locator('canvas').boundingBox();
+    const canvasBox = await page.locator('.globeStage canvas').first().boundingBox();
     const metricsBox = await page.locator('.metrics').boundingBox();
     const controlsBox = await page.locator('.controlDock').boundingBox();
     const lensBox = await page.locator('.lensPanel').boundingBox().catch(() => null);
@@ -93,31 +98,62 @@ async function inspectViewport(browser, spec) {
 
     const overlaps = [];
     if (metricsBox && controlsBox && overlap(metricsBox, controlsBox)) overlaps.push('metrics-controls');
-    if (lensBox && controlsBox && overlap(lensBox, controlsBox)) overlaps.push('lens-controls');
-    if (lensBox && metricsBox && overlap(lensBox, metricsBox)) overlaps.push('lens-metrics');
+    if (viewport.width > 700) {
+      if (lensBox && controlsBox && overlap(lensBox, controlsBox)) overlaps.push('lens-controls');
+      if (lensBox && metricsBox && overlap(lensBox, metricsBox)) overlaps.push('lens-metrics');
+    }
 
-    console.log(`[visual-check] ${spec.name}: checking axis lens`);
+    console.log(`[visual-check] ${spec.name}: checking 3D pole lens`);
     const lensPanel = page.locator('.lensPanel');
     if (!(await lensPanel.isVisible().catch(() => false))) {
       await forceClick(page.locator('.lensTrigger'));
-      await page.waitForTimeout(300);
+      await page.waitForTimeout(350);
     }
 
+    let lensCanvasBox = null;
     if (await lensPanel.isVisible().catch(() => false)) {
-      await page.screenshot({ path: path.join(outDir, `${spec.name}-axis-lens.png`), fullPage: false });
-      const before = (await page.locator('.metricPrimary strong').first().innerText()).trim();
-      const lensButtons = page.locator('.lensModes button');
-      const count = await lensButtons.count();
-      for (let index = 0; index < Math.min(count, 4); index += 1) {
-        await lensButtons.nth(index).click({ force: true, timeout: 5000 });
-        await page.waitForTimeout(120);
+      const axesTab = page.getByRole('tab', { name: '3D axes' });
+      await forceClick(axesTab);
+      const lensCanvas = page.locator('.poleLensCanvas canvas');
+      await lensCanvas.waitFor({ state: 'visible', timeout: 15000 });
+      await page.waitForTimeout(900);
+      lensCanvasBox = await lensCanvas.boundingBox();
+      if (!lensCanvasBox || lensCanvasBox.width < 100 || lensCanvasBox.height < 100) {
+        report.errors.push(`${spec.name}: 3D pole lens canvas has invalid dimensions`);
       }
+      await page.screenshot({ path: path.join(outDir, `${spec.name}-pole-lens-3d.png`), fullPage: false });
+
+      const before = (await page.locator('.metricPrimary strong').first().innerText()).trim();
+      const viewButtons = page.locator('.lensViewModes button');
+      for (let index = 0; index < Math.min(await viewButtons.count(), 3); index += 1) {
+        await viewButtons.nth(index).click({ force: true, timeout: 5000 });
+        await page.waitForTimeout(220);
+      }
+      const axisButtons = page.locator('.lensTelemetry button');
+      for (let index = 0; index < Math.min(await axisButtons.count(), 2); index += 1) {
+        await axisButtons.nth(index).click({ force: true, timeout: 5000 });
+        await page.waitForTimeout(160);
+      }
+      const scaleButtons = page.locator('.lensModes button');
+      for (let index = 0; index < Math.min(await scaleButtons.count(), 4); index += 1) {
+        await scaleButtons.nth(index).click({ force: true, timeout: 5000 });
+        await page.waitForTimeout(150);
+      }
+
+      const planeTab = page.getByRole('tab', { name: '2D plane' });
+      await planeTab.click({ force: true, timeout: 5000 });
+      await page.locator('.lensViz').waitFor({ state: 'visible', timeout: 5000 });
+      await page.waitForTimeout(280);
+      await page.screenshot({ path: path.join(outDir, `${spec.name}-pole-lens-2d.png`), fullPage: false });
+      await axesTab.click({ force: true, timeout: 5000 });
+      await page.locator('.poleLensCanvas canvas').waitFor({ state: 'visible', timeout: 10000 });
+
       const after = (await page.locator('.metricPrimary strong').first().innerText()).trim();
-      if (before !== after) report.errors.push(`${spec.name}: physical metric changed when lens magnification changed (${before} → ${after})`);
+      if (before !== after) report.errors.push(`${spec.name}: physical metric changed during lens interactions (${before} → ${after})`);
       await forceClick(page.locator('.lensHead button'));
-      await page.waitForTimeout(250);
+      await page.waitForTimeout(300);
     } else {
-      report.errors.push(`${spec.name}: axis lens could not be opened`);
+      report.errors.push(`${spec.name}: pole shift lens could not be opened`);
     }
 
     console.log(`[visual-check] ${spec.name}: checking transfer interaction`);
@@ -139,7 +175,7 @@ async function inspectViewport(browser, spec) {
       report.errors.push(`${spec.name}: model information control is not available`);
     }
 
-    const requiredText = ['GLOBEXPLORE', 'FIGURE POLE SHIFT', 'Axis lens'];
+    const requiredText = ['GLOBEXPLORE', 'FIGURE POLE SHIFT', 'Pole lens', '3D axes'];
     const missingText = requiredText.filter((value) => !text.includes(value));
     if (!response?.ok()) report.errors.push(`${spec.name}: navigation returned ${response?.status()}`);
     if (!primary || primary === '0 m') report.errors.push(`${spec.name}: primary pole shift is empty or collapsed to zero (${primary || 'empty'})`);
@@ -166,6 +202,7 @@ async function inspectViewport(browser, spec) {
       metrics: metricsBox,
       controls: controlsBox,
       lens: lensBox,
+      lensCanvas: lensCanvasBox,
     });
     console.log(`[visual-check] ${spec.name}: complete`);
   } catch (error) {

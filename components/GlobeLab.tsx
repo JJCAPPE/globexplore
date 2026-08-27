@@ -1,15 +1,20 @@
 'use client'
 
-import { Canvas, ThreeEvent, useFrame } from '@react-three/fiber'
-import { OrbitControls, Stars, Line } from '@react-three/drei'
+import { Canvas, type ThreeEvent, useFrame } from '@react-three/fiber'
+import { Line, OrbitControls, Stars } from '@react-three/drei'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
-import { Info, RotateCcw, Move3D, Plus, ArrowRightLeft, Maximize2, X } from 'lucide-react'
-import { useMemo, useRef, useState } from 'react'
+import { ArrowRightLeft, Info, Maximize2, Move3D, Plus, RotateCcw, X } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
-import { computePhysics, EARTH, formatDistance, formatMass, formatTime, latLonToUnit, Load } from '@/lib/physics'
+import PoleShiftLens3D, {
+  type PoleLensFocus,
+  type PoleLensScale,
+  type PoleLensView,
+} from '@/components/PoleShiftLens3D'
+import { computePhysics, EARTH, formatDistance, formatMass, formatTime, latLonToUnit, type Load, type Vec3 } from '@/lib/physics'
 
 type Mode = 'add' | 'move'
-type LensMode = 'auto' | '1x' | '1e9' | '1e12'
+type LensDimension = '2d' | '3d'
 
 type Scenario = {
   id: string
@@ -32,7 +37,8 @@ const SCENARIOS: Scenario[] = [
 ]
 
 function transferArc(loads: Load[]) {
-  const from=loads.find(l=>l.sign===-1), to=loads.find(l=>l.sign===1)
+  const from=loads.find(load=>load.sign===-1)
+  const to=loads.find(load=>load.sign===1)
   if(!from || !to) return null
   const a=new THREE.Vector3(...latLonToUnit(from.lat,from.lon)).normalize()
   const b=new THREE.Vector3(...latLonToUnit(to.lat,to.lon)).normalize()
@@ -40,28 +46,41 @@ function transferArc(loads: Load[]) {
   const angle=Math.acos(dot)
   if(angle<1e-6) return null
   const sin=Math.sin(angle)
-  return Array.from({length:65},(_,i)=>{
-    const t=i/64
-    const p=a.clone().multiplyScalar(Math.sin((1-t)*angle)/sin).add(b.clone().multiplyScalar(Math.sin(t*angle)/sin)).normalize()
+  return Array.from({length:65},(_,index)=>{
+    const t=index/64
+    const point=a.clone().multiplyScalar(Math.sin((1-t)*angle)/sin).add(b.clone().multiplyScalar(Math.sin(t*angle)/sin)).normalize()
     const lift=1.035 + Math.sin(Math.PI*t)*0.09
-    return p.multiplyScalar(lift)
+    return point.multiplyScalar(lift)
   })
 }
 
-function RotatingEarth({ loads, onPick, axis, reducedMotion }:{loads:Load[]; onPick:(lat:number,lon:number)=>void; axis:[number,number,number]; reducedMotion:boolean}) {
+function RotatingEarth({
+  loads,
+  onPick,
+  axis,
+  reducedMotion,
+}: {
+  loads: Load[]
+  onPick: (lat: number, lon: number) => void
+  axis: Vec3
+  reducedMotion: boolean
+}) {
   const group = useRef<THREE.Group>(null)
-  useFrame((_,dt)=>{ if(group.current && !reducedMotion) group.current.rotation.y += dt*0.012 })
-  const axisEnd = new THREE.Vector3(axis[0],axis[1],axis[2]).normalize().multiplyScalar(1.72)
+  useFrame((_,delta)=>{
+    if(group.current && !reducedMotion) group.current.rotation.y += delta*0.012
+  })
+  const axisEnd = new THREE.Vector3(...axis).normalize().multiplyScalar(1.72)
   const north = new THREE.Vector3(0,1.72,0)
   const arc=useMemo(()=>transferArc(loads),[loads])
+
   return <group ref={group}>
-    <mesh onPointerDown={(e:ThreeEvent<PointerEvent>)=>{
-      e.stopPropagation()
-      const local=e.point.clone()
+    <mesh onPointerDown={(event:ThreeEvent<PointerEvent>)=>{
+      event.stopPropagation()
+      const local=event.point.clone()
       if(group.current) group.current.worldToLocal(local)
-      const p=local.normalize()
-      const lat=Math.asin(p.y)*180/Math.PI
-      const lon=Math.atan2(p.z,p.x)*180/Math.PI
+      const point=local.normalize()
+      const lat=Math.asin(point.y)*180/Math.PI
+      const lon=Math.atan2(point.z,point.x)*180/Math.PI
       onPick(lat,lon)
     }}>
       <sphereGeometry args={[1,96,96]} />
@@ -76,24 +95,25 @@ function RotatingEarth({ loads, onPick, axis, reducedMotion }:{loads:Load[]; onP
       <meshBasicMaterial color="#59d6ff" wireframe transparent opacity={0.045} />
     </mesh>
     {[-60,-30,0,30,60].map(lat=>{
-      const r=Math.cos(lat*Math.PI/180), y=Math.sin(lat*Math.PI/180)
-      const pts=Array.from({length:97},(_,i)=>new THREE.Vector3(Math.cos(i/96*Math.PI*2)*r,y,Math.sin(i/96*Math.PI*2)*r))
-      return <Line key={`lat-${lat}`} points={pts} color="#89a7b7" transparent opacity={lat===0?.30:.075} lineWidth={lat===0?1:.45}/>
+      const radius=Math.cos(lat*Math.PI/180)
+      const y=Math.sin(lat*Math.PI/180)
+      const points=Array.from({length:97},(_,index)=>new THREE.Vector3(Math.cos(index/96*Math.PI*2)*radius,y,Math.sin(index/96*Math.PI*2)*radius))
+      return <Line key={`lat-${lat}`} points={points} color="#89a7b7" transparent opacity={lat===0?.30:.075} lineWidth={lat===0?1:.45}/>
     })}
     {[-150,-120,-90,-60,-30,0,30,60,90,120,150].map(lon=>{
-      const l=lon*Math.PI/180
-      const pts=Array.from({length:65},(_,i)=>{
-        const p=-Math.PI/2+i/64*Math.PI
-        return new THREE.Vector3(Math.cos(p)*Math.cos(l),Math.sin(p),Math.cos(p)*Math.sin(l))
+      const longitude=lon*Math.PI/180
+      const points=Array.from({length:65},(_,index)=>{
+        const latitude=-Math.PI/2+index/64*Math.PI
+        return new THREE.Vector3(Math.cos(latitude)*Math.cos(longitude),Math.sin(latitude),Math.cos(latitude)*Math.sin(longitude))
       })
-      return <Line key={`lon-${lon}`} points={pts} color="#89a7b7" transparent opacity={.055} lineWidth={.45}/>
+      return <Line key={`lon-${lon}`} points={points} color="#89a7b7" transparent opacity={.055} lineWidth={.45}/>
     })}
     {arc && <Line points={arc} color="#f3f7f8" transparent opacity={.55} lineWidth={1.2}/>} 
-    {loads.map((l,i)=>{
-      const u=latLonToUnit(l.lat,l.lon)
-      return <group key={`${i}-${l.lat}-${l.lon}`} position={[u[0]*1.035,u[1]*1.035,u[2]*1.035]}>
-        <mesh><sphereGeometry args={[.026,20,20]}/><meshBasicMaterial color={l.sign===-1?'#ff7d71':'#f3f7f8'} /></mesh>
-        <mesh scale={2.8}><sphereGeometry args={[.026,20,20]}/><meshBasicMaterial color={l.sign===-1?'#ff7d71':'#62dcff'} transparent opacity={.11}/></mesh>
+    {loads.map((load,index)=>{
+      const unit=latLonToUnit(load.lat,load.lon)
+      return <group key={`${index}-${load.lat}-${load.lon}`} position={[unit[0]*1.035,unit[1]*1.035,unit[2]*1.035]}>
+        <mesh><sphereGeometry args={[.026,20,20]}/><meshBasicMaterial color={load.sign===-1?'#ff7d71':'#f3f7f8'} /></mesh>
+        <mesh scale={2.8}><sphereGeometry args={[.026,20,20]}/><meshBasicMaterial color={load.sign===-1?'#ff7d71':'#62dcff'} transparent opacity={.11}/></mesh>
       </group>
     })}
     <Line points={[north.clone().multiplyScalar(-1),north]} color="#6c7b84" transparent opacity={.42} lineWidth={1}/>
@@ -103,39 +123,142 @@ function RotatingEarth({ loads, onPick, axis, reducedMotion }:{loads:Load[]; onP
   </group>
 }
 
-function AxisLens({shift, spinShift, azimuth, spinAzimuth, open, onClose}:{shift:number;spinShift:number;azimuth:number;spinAzimuth:number;open:boolean;onClose:()=>void}) {
-  const [mode,setMode]=useState<LensMode>('auto')
+function microArcseconds(radians: number) {
+  return radians*180/Math.PI*3600*1e6
+}
+
+function AxisLens({
+  figureAxis,
+  spinAxis,
+  shift,
+  spinShift,
+  figureTilt,
+  spinTilt,
+  azimuth,
+  spinAzimuth,
+  reducedMotion,
+  open,
+  onClose,
+}: {
+  figureAxis: Vec3
+  spinAxis: Vec3
+  shift: number
+  spinShift: number
+  figureTilt: number
+  spinTilt: number
+  azimuth: number
+  spinAzimuth: number
+  reducedMotion: boolean
+  open: boolean
+  onClose: () => void
+}) {
+  const [scale,setScale]=useState<PoleLensScale>('auto')
+  const [dimension,setDimension]=useState<LensDimension>('3d')
+  const [focus,setFocus]=useState<PoleLensFocus>('both')
+  const [view,setView]=useState<PoleLensView>('orbit')
+  const [autoRotate,setAutoRotate]=useState(!reducedMotion)
   const max=Math.max(Math.abs(shift),Math.abs(spinShift),1e-12)
-  const multiplier=mode==='1x'?1:mode==='1e9'?1e9:mode==='1e12'?1e12:null
+  const multiplier=scale==='1x'?1:scale==='1e9'?1e9:scale==='1e12'?1e12:null
   const pxPerMeter=multiplier===null ? 62/max : 70/EARTH.radius*multiplier
-  const cap=(v:number)=>Math.max(-82,Math.min(82,v))
+  const cap=(value:number)=>Math.max(-82,Math.min(82,value))
   const figureRad=azimuth*Math.PI/180
   const spinRad=spinAzimuth*Math.PI/180
-  const fx=cap(Math.cos(figureRad)*shift*pxPerMeter), fy=cap(Math.sin(figureRad)*shift*pxPerMeter)
-  const sx=cap(Math.cos(spinRad)*spinShift*pxPerMeter), sy=cap(Math.sin(spinRad)*spinShift*pxPerMeter)
-  const scaleText=mode==='auto'?`AUTO · ${formatDistance(max)} → 62 px`:mode==='1x'?'PHYSICAL 1×':mode==='1e9'?'VISUAL ×10⁹':'VISUAL ×10¹²'
-  return <AnimatePresence>{open && <motion.div className="lensPanel" initial={{opacity:0,scale:.96,y:10}} animate={{opacity:1,scale:1,y:0}} exit={{opacity:0,scale:.97,y:8}} transition={{type:'spring',stiffness:260,damping:25}}>
-    <div className="lensHead"><div><span>AXIS LENS</span><strong>North-pole tangent plane</strong></div><button onClick={onClose} aria-label="Close axis lens"><X size={16}/></button></div>
-    <div className="lensModes">{(['1x','1e9','1e12','auto'] as LensMode[]).map(m=><button key={m} className={mode===m?'active':''} onClick={()=>setMode(m)}>{m==='auto'?'AUTO':m==='1x'?'1×':m==='1e9'?'10⁹×':'10¹²×'}</button>)}</div>
-    <div className="lensViz">
-      <i className="ring r1"/><i className="ring r2"/><i className="cross h"/><i className="cross v"/>
-      <span className="cardinal north">N</span><span className="cardinal east">E</span>
-      <span className="origin" title="Geographic pole"/>
-      <motion.span className="figureDot" animate={{x:fx,y:-fy}} transition={{type:'spring',stiffness:220,damping:25}} title="Perturbed figure pole"/>
-      <motion.span className="spinDot" animate={{x:sx,y:-sy}} transition={{type:'spring',stiffness:220,damping:25}} title="Instantaneous spin-vector pole"/>
-      <span className="scaleLabel">{scaleText}</span>
-    </div>
-    <div className="lensLegend"><span><i className="geo"/>Geographic</span><span><i className="fig"/>Figure</span><span><i className="spin"/>Spin vector</span></div>
-    <p className="lensExplain">The lens magnifies angular separation only. Reported distances and times remain physical values.</p>
+  const figureX=cap(Math.cos(figureRad)*shift*pxPerMeter)
+  const figureY=cap(Math.sin(figureRad)*shift*pxPerMeter)
+  const spinX=cap(Math.cos(spinRad)*spinShift*pxPerMeter)
+  const spinY=cap(Math.sin(spinRad)*spinShift*pxPerMeter)
+  const scaleText=scale==='auto'
+    ? `AUTO · ${formatDistance(max)} → ${dimension==='3d'?'30°':'62 px'}`
+    : scale==='1x'?'PHYSICAL 1×':scale==='1e9'?'VISUAL ×10⁹':'VISUAL ×10¹²'
+
+  useEffect(()=>{
+    if(!open) return
+    const handleKey=(event:KeyboardEvent)=>{
+      if(event.key==='Escape') onClose()
+    }
+    window.addEventListener('keydown',handleKey)
+    return ()=>window.removeEventListener('keydown',handleKey)
+  },[open,onClose])
+
+  const selectAxis=(kind:'figure'|'spin')=>{
+    setFocus(current=>current===kind?'both':kind)
+  }
+
+  return <AnimatePresence>{open && <motion.div className="lensOverlayRoot" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}>
+    <button className="lensBackdrop" onClick={onClose} aria-label="Close pole shift lens" />
+    <motion.div
+      className={`lensPanel ${dimension==='3d'?'is3d':'is2d'}`}
+      role="dialog"
+      aria-label="Pole shift lens"
+      initial={{opacity:0,scale:.96,y:10}}
+      animate={{opacity:1,scale:1,y:0}}
+      exit={{opacity:0,scale:.97,y:8}}
+      transition={{type:'spring',stiffness:260,damping:25}}
+    >
+      <div className="lensHead"><div><span>POLE SHIFT LENS</span><strong>{dimension==='3d'?'3D axis geometry':'North-pole tangent plane'}</strong></div><button onClick={onClose} aria-label="Close pole shift lens"><X size={16}/></button></div>
+
+      <div className="lensDimensionTabs" role="tablist" aria-label="Pole lens dimension">
+        <button role="tab" aria-selected={dimension==='3d'} className={dimension==='3d'?'active':''} onClick={()=>setDimension('3d')}>3D axes</button>
+        <button role="tab" aria-selected={dimension==='2d'} className={dimension==='2d'?'active':''} onClick={()=>setDimension('2d')}>2D plane</button>
+      </div>
+
+      <div className="lensModes" aria-label="Pole lens magnification">{(['1x','1e9','1e12','auto'] as PoleLensScale[]).map(mode=><button key={mode} className={scale===mode?'active':''} aria-pressed={scale===mode} onClick={()=>setScale(mode)}>{mode==='auto'?'AUTO':mode==='1x'?'1×':mode==='1e9'?'10⁹×':'10¹²×'}</button>)}</div>
+
+      {dimension==='3d' ? <>
+        <div className="lensViewModes" aria-label="3D camera controls">
+          {(['orbit','pole','side'] as PoleLensView[]).map(cameraView=><button key={cameraView} className={view===cameraView?'active':''} aria-pressed={view===cameraView} aria-label={`${cameraView} view`} onClick={()=>setView(cameraView)}>{cameraView}</button>)}
+          <button className={autoRotate?'active':''} aria-pressed={autoRotate} onClick={()=>setAutoRotate(value=>!value)}>auto</button>
+        </div>
+        <PoleShiftLens3D
+          figureAxis={figureAxis}
+          spinAxis={spinAxis}
+          figureShiftM={shift}
+          spinShiftM={spinShift}
+          scale={scale}
+          scaleLabel={scaleText}
+          focus={focus}
+          view={view}
+          autoRotate={autoRotate}
+          reducedMotion={reducedMotion}
+          onFocus={selectAxis}
+        />
+        <div className="lensTelemetry" aria-label="Physical pole shift values">
+          <button className={focus==='figure'?'active':''} aria-pressed={focus==='figure'} onClick={()=>selectAxis('figure')}>
+            <span><i className="fig"/>Figure pole</span>
+            <strong>{formatDistance(shift)}</strong>
+            <small>{microArcseconds(figureTilt).toFixed(3)} µas · {azimuth.toFixed(1)}°</small>
+          </button>
+          <button className={focus==='spin'?'active':''} aria-pressed={focus==='spin'} onClick={()=>selectAxis('spin')}>
+            <span><i className="spin"/>Spin vector</span>
+            <strong>{formatDistance(spinShift)}</strong>
+            <small>{microArcseconds(spinTilt).toFixed(3)} µas · {spinAzimuth.toFixed(1)}°</small>
+          </button>
+        </div>
+      </> : <>
+        <div className="lensViz">
+          <i className="ring r1"/><i className="ring r2"/><i className="cross h"/><i className="cross v"/>
+          <span className="cardinal north">N</span><span className="cardinal east">E</span>
+          <span className="origin" title="Geographic pole"/>
+          <motion.span className="figureDot" animate={{x:figureX,y:-figureY}} transition={{type:'spring',stiffness:220,damping:25}} title="Perturbed figure pole"/>
+          <motion.span className="spinDot" animate={{x:spinX,y:-spinY}} transition={{type:'spring',stiffness:220,damping:25}} title="Instantaneous spin-vector pole"/>
+          <span className="scaleLabel">{scaleText}</span>
+        </div>
+        <div className="lensLegend"><span><i className="geo"/>Geographic</span><span><i className="fig"/>Figure</span><span><i className="spin"/>Spin vector</span></div>
+      </>}
+
+      <p className="lensExplain">{dimension==='3d'
+        ? 'The vectors keep their physical azimuths while angular separation is magnified. Drag to orbit; reported distances and angles remain physical.'
+        : 'The tangent-plane lens magnifies angular separation only. Reported distances and times remain physical values.'}</p>
+    </motion.div>
   </motion.div>}</AnimatePresence>
 }
 
 function ScaleContext({meters}:{meters:number}) {
-  const refs=[['hair',70e-6],['1 mm',1e-3],['1 cm',1e-2],['1 m',1]] as const
+  const references=[['hair',70e-6],['1 mm',1e-3],['1 cm',1e-2],['1 m',1]] as const
   const ratio=Math.max(1e-10,Math.abs(meters))
-  return <div className="scaleContext"><div className="contextHead"><span>SCALE CONTEXT</span><strong>{formatDistance(meters)}</strong></div><div className="contextTrack">{refs.map(([label,value])=>{
-    const pos=Math.max(3,Math.min(97,(Math.log10(value)+6)/6*100))
-    return <i key={label} style={{left:`${pos}%`}}><b>{label}</b></i>
+  return <div className="scaleContext"><div className="contextHead"><span>SCALE CONTEXT</span><strong>{formatDistance(meters)}</strong></div><div className="contextTrack">{references.map(([label,value])=>{
+    const position=Math.max(3,Math.min(97,(Math.log10(value)+6)/6*100))
+    return <i key={label} style={{left:`${position}%`}}><b>{label}</b></i>
   })}<motion.span animate={{left:`${Math.max(2,Math.min(98,(Math.log10(ratio)+6)/6*100))}%`}}/></div></div>
 }
 
@@ -149,19 +272,28 @@ export default function GlobeLab() {
   const [lens,setLens]=useState(true)
   const [details,setDetails]=useState(false)
 
-  const loads=useMemo<Load[]>(()=>mode==='add' ? [{massKg:mass,...target}] : [{massKg:mass,...source,sign:-1},{massKg:mass,...target,sign:1}], [mode,mass,target,source])
+  const loads=useMemo<Load[]>(()=>mode==='add'
+    ? [{massKg:mass,...target}]
+    : [{massKg:mass,...source,sign:-1},{massKg:mass,...target,sign:1}], [mode,mass,target,source])
   const result=useMemo(()=>computePhysics(loads),[loads])
   const spinAzimuth=((Math.atan2(result.spinAxis[2],result.spinAxis[0])*180/Math.PI)+360)%360
   const latitudeFactor=Math.abs(Math.sin(2*target.lat*Math.PI/180))
 
-  const loadScenario=(s:Scenario)=>{
-    setScenario(s.id);setMass(s.massKg)
-    if(s.source && s.destination){setMode('move');setSource(s.source);setTarget(s.destination)}
-    else {setMode('add');setTarget({lat:s.lat,lon:s.lon})}
+  const loadScenario=(selected:Scenario)=>{
+    setScenario(selected.id)
+    setMass(selected.massKg)
+    if(selected.source && selected.destination){
+      setMode('move')
+      setSource(selected.source)
+      setTarget(selected.destination)
+    } else {
+      setMode('add')
+      setTarget({lat:selected.lat,lon:selected.lon})
+    }
   }
-  const current=SCENARIOS.find(s=>s.id===scenario)
+  const current=SCENARIOS.find(selected=>selected.id===scenario)
 
-  return <main className="appShell">
+  return <main className="appShell" data-release="pole-lens-3d-v1">
     <div className="ambient"/>
     <header className="topbar">
       <div className="brand"><span className="brandMark"/>GLOBEXPLORE <small>/ ROTATION LAB</small></div>
@@ -180,11 +312,11 @@ export default function GlobeLab() {
         <OrbitControls enablePan={false} minDistance={1.7} maxDistance={6} dampingFactor={.055} enableDamping rotateSpeed={.55}/>
       </Canvas>
       <div className="axisLegend"><span><i className="original"/>geographic axis</span><span><i className="perturbed"/>perturbed figure axis</span><em>visual-only separation</em></div>
-      <button className="lensTrigger" onClick={()=>setLens(v=>!v)}><Maximize2 size={15}/> Axis lens</button>
+      <button className="lensTrigger" onClick={()=>setLens(value=>!value)}><Maximize2 size={15}/> Pole lens</button>
     </section>
 
     <aside className="metrics">
-      <div className="metricPrimary"><div className="metricLabel"><span>FIGURE POLE SHIFT</span><b>{current?.badge ?? 'Rigid model'}</b></div><strong>{formatDistance(result.poleShiftM)}</strong><small>{(result.figureTiltRad*180/Math.PI*3600*1e6).toFixed(3)} µas · azimuth {result.azimuthDeg.toFixed(1)}°</small></div>
+      <div className="metricPrimary"><div className="metricLabel"><span>FIGURE POLE SHIFT</span><b>{current?.badge ?? 'Rigid model'}</b></div><strong>{formatDistance(result.poleShiftM)}</strong><small>{microArcseconds(result.figureTiltRad).toFixed(3)} µas · azimuth {result.azimuthDeg.toFixed(1)}°</small></div>
       <div className="metricGrid">
         <div><span>Spin-vector shift</span><strong>{formatDistance(result.spinPoleShiftM)}</strong></div>
         <div><span>Center of mass</span><strong>{formatDistance(result.centerOfMassShiftM)}</strong></div>
@@ -199,16 +331,28 @@ export default function GlobeLab() {
 
     <div className="controlDock">
       <div className="modeTabs"><button className={mode==='add'?'active':''} onClick={()=>{setMode('add');setScenario('custom')}}><Plus size={14}/> Add mass</button><button className={mode==='move'?'active':''} onClick={()=>{setMode('move');setScenario('custom')}}><ArrowRightLeft size={14}/> Move mass</button></div>
-      <div className="massControl"><label>Mass <strong>{formatMass(mass)}</strong></label><input aria-label="Mass" type="range" min="6" max="18" step=".01" value={Math.log10(mass)} onChange={e=>{setMass(10**Number(e.target.value));setScenario('custom')}}/></div>
+      <div className="massControl"><label>Mass <strong>{formatMass(mass)}</strong></label><input aria-label="Mass" type="range" min="6" max="18" step=".01" value={Math.log10(mass)} onChange={event=>{setMass(10**Number(event.target.value));setScenario('custom')}}/></div>
       <div className="coord"><span>Target</span><strong>{Math.abs(target.lat).toFixed(1)}°{target.lat>=0?'N':'S'} · {Math.abs(target.lon).toFixed(1)}°{target.lon>=0?'E':'W'}</strong><small>Click Earth to reposition</small></div>
     </div>
 
-    <nav className="scenarioRail" aria-label="Scenario presets">{SCENARIOS.map(s=><button key={s.id} className={scenario===s.id?'active':''} onClick={()=>loadScenario(s)}><span>{s.kicker}</span><strong>{s.name}</strong><em>{s.badge}</em></button>)}</nav>
+    <nav className="scenarioRail" aria-label="Scenario presets">{SCENARIOS.map(selected=><button key={selected.id} className={scenario===selected.id?'active':''} onClick={()=>loadScenario(selected)}><span>{selected.kicker}</span><strong>{selected.name}</strong><em>{selected.badge}</em></button>)}</nav>
 
-    <AxisLens shift={result.poleShiftM} spinShift={result.spinPoleShiftM} azimuth={result.azimuthDeg} spinAzimuth={spinAzimuth} open={lens} onClose={()=>setLens(false)}/>
+    <AxisLens
+      figureAxis={result.figureAxis}
+      spinAxis={result.spinAxis}
+      shift={result.poleShiftM}
+      spinShift={result.spinPoleShiftM}
+      figureTilt={result.figureTiltRad}
+      spinTilt={result.spinTiltRad}
+      azimuth={result.azimuthDeg}
+      spinAzimuth={spinAzimuth}
+      reducedMotion={reducedMotion}
+      open={lens}
+      onClose={()=>setLens(false)}
+    />
 
-    <AnimatePresence>{details&&<motion.div className="scrim" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} onClick={()=>setDetails(false)}><motion.section className="infoSheet" initial={{x:30,opacity:0}} animate={{x:0,opacity:1}} exit={{x:30,opacity:0}} onClick={e=>e.stopPropagation()}>
-      <button className="close" onClick={()=>setDetails(false)}><X size={18}/></button><span className="eyebrow">MODEL / V1</span><h2>What the visualization means</h2><p>GlobExplore computes how selected surface loads perturb an axisymmetric rigid Earth inertia tensor. It separates the principal <b>figure axis</b> from the instantaneous <b>spin vector</b> and the fixed geographic reference axis.</p><p>Internal redistribution conserves total angular momentum in this model. It does not directly change Earth’s orbital obliquity. Real polar motion additionally involves oceans, atmosphere, mantle, elasticity and core coupling.</p><div className="formula">ΔI = m[(r · r)I − rrᵀ]</div><p><b>Numerics:</b> microscopic angles use a stable `atan2` formulation so sub-millimetre pole shifts are not rounded to zero when the axial component is indistinguishable from 1 at floating-point precision.</p><p>{current?.note}</p><div className="tip"><Move3D size={16}/> Drag to orbit. Pinch or scroll to zoom. Click anywhere on Earth to move the target load.</div>
+    <AnimatePresence>{details&&<motion.div className="scrim" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} onClick={()=>setDetails(false)}><motion.section className="infoSheet" initial={{x:30,opacity:0}} animate={{x:0,opacity:1}} exit={{x:30,opacity:0}} onClick={event=>event.stopPropagation()}>
+      <button className="close" onClick={()=>setDetails(false)}><X size={18}/></button><span className="eyebrow">MODEL / V1</span><h2>What the visualization means</h2><p>GlobExplore computes how selected surface loads perturb an axisymmetric rigid Earth inertia tensor. It separates the principal <b>figure axis</b> from the instantaneous <b>spin vector</b> and the fixed geographic reference axis.</p><p>Internal redistribution conserves total angular momentum in this model. It does not directly change Earth’s orbital obliquity. Real polar motion additionally involves oceans, atmosphere, mantle, elasticity and core coupling.</p><div className="formula">ΔI = m[(r · r)I − rrᵀ]</div><p><b>Numerics:</b> microscopic angles use a stable `atan2` formulation so sub-millimetre pole shifts are not rounded to zero when the axial component is indistinguishable from 1 at floating-point precision.</p><p><b>3D pole lens:</b> the three vectors retain their computed azimuths, while the selected lens scale magnifies only their angular separation. The tangent-plane intersections make the pole displacement legible without changing the physical readouts.</p><p>{current?.note}</p><div className="tip"><Move3D size={16}/> Drag either 3D view to orbit. Pinch or scroll to zoom. Click anywhere on Earth to move the target load.</div>
     </motion.section></motion.div>}</AnimatePresence>
   </main>
 }
