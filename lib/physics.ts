@@ -23,7 +23,6 @@ export type PhysicsResult = {
 
 type Mat3 = [[number, number, number], [number, number, number], [number, number, number]]
 
-const clamp = (x: number, a = -1, b = 1) => Math.max(a, Math.min(b, x))
 const norm = (v: Vec3) => Math.hypot(v[0], v[1], v[2])
 const normalize = (v: Vec3): Vec3 => {
   const n = norm(v) || 1
@@ -121,10 +120,11 @@ export function computePhysics(loads: Load[]): PhysicsResult {
   figure = normalize(figure)
   if (figure[1] < 0) figure = [-figure[0],-figure[1],-figure[2]]
 
-  const figureTilt = Math.acos(clamp(figure[1]))
+  // atan2 retains tiny angles when the axial component rounds to exactly 1.0.
+  const figureTilt = Math.atan2(Math.hypot(figure[0], figure[2]), figure[1])
   const inv = inverse3(inertia)
   const spin = normalize(mulVec(inv, [0,c,0]))
-  const spinTilt = Math.acos(clamp(spin[1]))
+  const spinTilt = Math.atan2(Math.hypot(spin[0], spin[2]), spin[1])
   const poleShiftM = figureTilt * EARTH.radius
   const spinPoleShiftM = spinTilt * EARTH.radius
   const centerOfMassShiftM = norm(com) * EARTH.radius
