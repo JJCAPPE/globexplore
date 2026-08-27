@@ -15,10 +15,6 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: globexplore-production-visual-check
-  cancel-in-progress: true
-
 jobs:
   verify-production:
     runs-on: ubuntu-latest
