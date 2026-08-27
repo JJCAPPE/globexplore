@@ -88,7 +88,8 @@ function mulVec(m: Mat3, v: Vec3): Vec3 {
 export function computePhysics(loads: Load[]): PhysicsResult {
   const c = EARTH.cbar
   const a = c - EARTH.j2
-  const inertia: Mat3 = [[a,0,0],[0,a,0],[0,0,c]]
+  // Renderer coordinates use +Y as geographic north, so the polar moment C belongs on Y.
+  const inertia: Mat3 = [[a,0,0],[0,c,0],[0,0,a]]
   let netMassRatio = 0
   const cm: Vec3 = [0,0,0]
   let deltaC = 0
@@ -102,13 +103,14 @@ export function computePhysics(loads: Load[]): PhysicsResult {
     for (let i=0;i<3;i++) for (let j=0;j<3;j++) {
       inertia[i][j] += mu * ((i===j ? 1 : 0) - r[i]*r[j])
     }
-    deltaC += mu * (1-r[2]*r[2])
+    deltaC += mu * (1-r[1]*r[1])
   }
 
   const denom = 1 + netMassRatio
   const com: Vec3 = [cm[0]/denom, cm[1]/denom, cm[2]/denom]
+  const com2 = com[0]**2 + com[1]**2 + com[2]**2
   for (let i=0;i<3;i++) for (let j=0;j<3;j++) {
-    inertia[i][j] -= denom * ((i===j ? com[0]**2+com[1]**2+com[2]**2 : 0) - com[i]*com[j])
+    inertia[i][j] -= denom * ((i===j ? com2 : 0) - com[i]*com[j])
   }
 
   const eig = jacobiSymmetric(inertia)
@@ -119,8 +121,6 @@ export function computePhysics(loads: Load[]): PhysicsResult {
   figure = normalize(figure)
   if (figure[1] < 0) figure = [-figure[0],-figure[1],-figure[2]]
 
-  // World Y is the geographic north axis in the renderer.
-  const z: Vec3 = [0,1,0]
   const figureTilt = Math.acos(clamp(figure[1]))
   const inv = inverse3(inertia)
   const spin = normalize(mulVec(inv, [0,c,0]))
