@@ -10,6 +10,7 @@ on:
       - "lib/**"
       - "package.json"
       - "scripts/visual-check.mjs"
+      - "scripts/tablet-layout-check.mjs"
       - ".github/workflows/visual-check.yml"
 
 permissions:
@@ -34,6 +35,8 @@ jobs:
           npx playwright install --with-deps chromium
       - name: Verify production UI and interactions
         run: node scripts/visual-check.mjs
+      - name: Verify iPad pole-lens layout
+        run: node scripts/tablet-layout-check.mjs
       - name: Upload screenshots and report
         if: always()
         uses: actions/upload-artifact@v4
