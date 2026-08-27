@@ -16,41 +16,25 @@ const report = {
   errors: [],
 };
 
-async function waitForDeployment(browser) {
+async function waitForDeployment() {
   let lastError = '';
-  const context = await browser.newContext({
-    viewport: { width: 1280, height: 800 },
-    colorScheme: 'dark',
-  });
-  const page = await context.newPage();
-  page.setDefaultNavigationTimeout(30000);
+  const releaseMarker = `name="globexplore-release" content="${expectedFeature}"`;
 
-  try {
-    for (let attempt = 1; attempt <= 48; attempt += 1) {
-      try {
-        const response = await page.goto(baseUrl, {
-          waitUntil: 'domcontentloaded',
-          timeout: 30000,
-        });
-        const featureVisible = await page
-          .locator(`[data-feature="${expectedFeature}"]`)
-          .isVisible({ timeout: 5000 })
-          .catch(() => false);
-
-        if (response?.ok() && featureVisible) return response.status();
-        lastError = response?.ok()
-          ? `HTTP ${response.status()}, rendered feature marker not present`
-          : `HTTP ${response?.status() ?? 'no response'}`;
-      } catch (error) {
-        lastError = String(error);
-      }
-      await page.waitForTimeout(5000);
+  for (let attempt = 1; attempt <= 48; attempt += 1) {
+    try {
+      const response = await fetch(baseUrl, { redirect: 'follow', cache: 'no-store' });
+      const html = await response.text();
+      if (response.ok && html.includes(releaseMarker)) return response.status;
+      lastError = response.ok
+        ? `HTTP ${response.status}, release marker not present`
+        : `HTTP ${response.status}`;
+    } catch (error) {
+      lastError = String(error);
     }
-  } finally {
-    await context.close();
+    await new Promise((resolve) => setTimeout(resolve, 5000));
   }
 
-  throw new Error(`Production URL never rendered ${expectedFeature}: ${lastError}`);
+  throw new Error(`Production URL never exposed ${expectedFeature}: ${lastError}`);
 }
 
 function edges(box) {
@@ -279,7 +263,7 @@ async function inspectViewport(browser, spec) {
 let browser;
 try {
   browser = await chromium.launch({ headless: true });
-  report.httpStatus = await waitForDeployment(browser);
+  report.httpStatus = await waitForDeployment();
   const specs = [
     { name: 'desktop-1440x900', viewport: { width: 1440, height: 900 }, scale: 1, mobile: false },
     { name: 'iphone-393x852', viewport: { width: 393, height: 852 }, scale: 2, mobile: true },
