@@ -16,15 +16,35 @@ const report = {
   errors: [],
 };
 
+async function responseIncludesFeature(html) {
+  if (html.includes(expectedFeature)) return true;
+
+  const scriptPaths = [...html.matchAll(/<script[^>]+src=["']([^"']+)["']/g)]
+    .map((match) => match[1])
+    .filter((value, index, values) => values.indexOf(value) === index);
+
+  for (const scriptPath of scriptPaths) {
+    try {
+      const scriptUrl = new URL(scriptPath, baseUrl);
+      const response = await fetch(scriptUrl, { redirect: 'follow', cache: 'no-store' });
+      if (response.ok && (await response.text()).includes(expectedFeature)) return true;
+    } catch {
+      // A single optional chunk must not abort deployment polling.
+    }
+  }
+
+  return false;
+}
+
 async function waitForDeployment() {
   let lastError = '';
   for (let attempt = 1; attempt <= 48; attempt += 1) {
     try {
       const response = await fetch(baseUrl, { redirect: 'follow', cache: 'no-store' });
       const html = await response.text();
-      if (response.ok && html.includes(expectedFeature)) return response.status;
+      if (response.ok && await responseIncludesFeature(html)) return response.status;
       lastError = response.ok
-        ? `HTTP ${response.status}, feature marker not present`
+        ? `HTTP ${response.status}, feature marker not present in HTML or client bundles`
         : `HTTP ${response.status}`;
     } catch (error) {
       lastError = String(error);
@@ -90,7 +110,7 @@ async function inspectViewport(browser, spec) {
     const metricsBox = await page.locator('.metrics').boundingBox();
     const controlsBox = await page.locator('.controlDock').boundingBox();
     const poleLensBox = await page.locator('.poleLensPanel').boundingBox().catch(() => null);
-    const lensBox = await page.locator('.lensPanel').boundingBox().catch(() => null);
+    const axisLensBox = await page.locator('.lensPanel').boundingBox().catch(() => null);
     const viewport = page.viewportSize();
     const documentSize = await page.evaluate(() => ({
       width: document.documentElement.scrollWidth,
@@ -101,8 +121,8 @@ async function inspectViewport(browser, spec) {
       ['canvas', canvasBox],
       ['metrics', metricsBox],
       ['controls', controlsBox],
-      ['3d-pole-lens', poleLensBox],
-      ['2d-axis-lens', lensBox],
+      ['3d-lens', poleLensBox],
+      ['2d-lens', axisLensBox],
     ].filter((entry) => entry[1]);
     const outside = criticalBoxes
       .filter(([, box]) => box.left < -1 || box.top < -1 || box.right > viewport.width + 1 || box.bottom > viewport.height + 1)
@@ -110,10 +130,10 @@ async function inspectViewport(browser, spec) {
 
     const overlaps = [];
     if (metricsBox && controlsBox && overlap(metricsBox, controlsBox)) overlaps.push('metrics-controls');
-    if (poleLensBox && controlsBox && overlap(poleLensBox, controlsBox)) overlaps.push('3d-pole-lens-controls');
-    if (poleLensBox && metricsBox && overlap(poleLensBox, metricsBox)) overlaps.push('3d-pole-lens-metrics');
-    if (lensBox && controlsBox && overlap(lensBox, controlsBox)) overlaps.push('2d-axis-lens-controls');
-    if (lensBox && metricsBox && overlap(lensBox, metricsBox)) overlaps.push('2d-axis-lens-metrics');
+    if (poleLensBox && controlsBox && overlap(poleLensBox, controlsBox)) overlaps.push('3d-lens-controls');
+    if (poleLensBox && metricsBox && overlap(poleLensBox, metricsBox)) overlaps.push('3d-lens-metrics');
+    if (axisLensBox && controlsBox && overlap(axisLensBox, controlsBox)) overlaps.push('2d-lens-controls');
+    if (axisLensBox && metricsBox && overlap(axisLensBox, metricsBox)) overlaps.push('2d-lens-metrics');
 
     console.log(`[visual-check] ${spec.name}: checking 3D pole lens`);
     const poleLensPanel = page.locator('.poleLensPanel');
@@ -125,40 +145,40 @@ async function inspectViewport(browser, spec) {
     if (await poleLensPanel.isVisible().catch(() => false)) {
       const beforeMetric = (await page.locator('.metricPrimary strong').first().innerText()).trim();
       const beforeMultiplier = await poleLensPanel.getAttribute('data-visual-multiplier');
-      await setRange(page.locator('input[aria-label="3D pole magnification"]'), 12);
-      await page.waitForTimeout(400);
+      await setRange(page.locator('.poleScaleControl input[type="range"]'), 12);
+      await page.waitForTimeout(450);
       const afterMetric = (await page.locator('.metricPrimary strong').first().innerText()).trim();
       const afterMultiplier = await poleLensPanel.getAttribute('data-visual-multiplier');
-      const displayAngle = Number(await poleLensPanel.getAttribute('data-display-angle'));
+      const renderedAngle = Number(await poleLensPanel.getAttribute('data-display-angle'));
 
       if (beforeMetric !== afterMetric) {
         report.errors.push(`${spec.name}: physical metric changed under 3D magnification (${beforeMetric} → ${afterMetric})`);
       }
       if (beforeMultiplier === afterMultiplier) {
-        report.errors.push(`${spec.name}: 3D magnification slider did not change the rendered scale (${beforeMultiplier})`);
+        report.errors.push(`${spec.name}: 3D magnification slider did not change the rendered multiplier (${beforeMultiplier})`);
       }
-      if (!Number.isFinite(displayAngle) || displayAngle <= 0.1 || displayAngle > 24.001) {
-        report.errors.push(`${spec.name}: invalid 3D rendered pole angle (${displayAngle})`);
+      if (!Number.isFinite(renderedAngle) || renderedAngle <= 0.1 || renderedAngle > 24.001) {
+        report.errors.push(`${spec.name}: rendered pole separation is outside its visual-only 0–24° envelope (${renderedAngle})`);
       }
 
-      await forceClick(page.locator('.poleCameraModes button').filter({ hasText: /North focus/i }));
-      await page.waitForTimeout(spec.reducedMotion ? 150 : 950);
+      const northButton = page.locator('.poleCameraModes button').filter({ hasText: /North focus/i });
+      await forceClick(northButton);
+      await page.waitForTimeout(750);
       await page.screenshot({ path: path.join(outDir, `${spec.name}-3d-pole-lens.png`), fullPage: false });
       await forceClick(page.locator('.poleLensHead button'));
-      await page.waitForTimeout(280);
+      await page.waitForTimeout(250);
     } else {
       report.errors.push(`${spec.name}: 3D pole lens could not be opened`);
     }
 
     console.log(`[visual-check] ${spec.name}: checking 2D axis lens`);
-    const lensPanel = page.locator('.lensPanel');
-    if (!(await lensPanel.isVisible().catch(() => false))) {
+    const axisLensPanel = page.locator('.lensPanel');
+    if (!(await axisLensPanel.isVisible().catch(() => false))) {
       await forceClick(page.locator('.lensTrigger'));
       await page.waitForTimeout(300);
     }
 
-    if (await lensPanel.isVisible().catch(() => false)) {
-      await page.screenshot({ path: path.join(outDir, `${spec.name}-axis-lens.png`), fullPage: false });
+    if (await axisLensPanel.isVisible().catch(() => false)) {
       const before = (await page.locator('.metricPrimary strong').first().innerText()).trim();
       const lensButtons = page.locator('.lensModes button');
       const count = await lensButtons.count();
@@ -167,7 +187,8 @@ async function inspectViewport(browser, spec) {
         await page.waitForTimeout(120);
       }
       const after = (await page.locator('.metricPrimary strong').first().innerText()).trim();
-      if (before !== after) report.errors.push(`${spec.name}: physical metric changed when 2D magnification changed (${before} → ${after})`);
+      if (before !== after) report.errors.push(`${spec.name}: physical metric changed when 2D lens magnification changed (${before} → ${after})`);
+      await page.screenshot({ path: path.join(outDir, `${spec.name}-axis-lens.png`), fullPage: false });
       await forceClick(page.locator('.lensHead button'));
       await page.waitForTimeout(250);
     } else {
@@ -220,7 +241,7 @@ async function inspectViewport(browser, spec) {
       metrics: metricsBox,
       controls: controlsBox,
       poleLens: poleLensBox,
-      lens: lensBox,
+      axisLens: axisLensBox,
     });
     console.log(`[visual-check] ${spec.name}: complete`);
   } catch (error) {
