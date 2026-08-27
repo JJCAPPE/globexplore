@@ -10,6 +10,9 @@ export const metadata: Metadata = {
   title: 'GlobExplore — Earth Rotation Lab',
   description:
     "Interactive 3D exploration of how mass redistribution affects Earth's rotation, pole position, and length of day.",
+  other: {
+    'globexplore-release': 'pole-lens-3d-v1',
+  },
 }
 
 export default function RootLayout({
