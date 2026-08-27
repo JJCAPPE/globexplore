@@ -2,7 +2,7 @@
 
 import { Canvas, type ThreeEvent, useFrame } from '@react-three/fiber'
 import { Line, OrbitControls } from '@react-three/drei'
-import { useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import { EARTH, type Vec3 } from '@/lib/physics'
 
@@ -91,9 +91,31 @@ function InteractiveAxis({
     ], 3))
     return geometry
   }, [])
+  const trailLine = useMemo(() => {
+    const material = new THREE.LineBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0.42,
+      depthTest: false,
+    })
+    const line = new THREE.Line(trailGeometry, material)
+    line.renderOrder = 4
+    return line
+  }, [color, trailGeometry])
   const active = focus === 'both' || focus === kind
   const selected = focus === kind
   const opacity = active ? 0.95 : 0.14
+
+  useEffect(() => {
+    const material = trailLine.material as THREE.LineBasicMaterial
+    material.opacity = active ? 0.42 : 0.08
+    material.needsUpdate = true
+  }, [active, trailLine])
+
+  useEffect(() => () => {
+    trailGeometry.dispose()
+    ;(trailLine.material as THREE.Material).dispose()
+  }, [trailGeometry, trailLine])
 
   useFrame((_, delta) => {
     const blend = reducedMotion ? 1 : 1 - Math.exp(-delta * 9)
@@ -138,9 +160,7 @@ function InteractiveAxis({
         </mesh>
       </group>
 
-      <line geometry={trailGeometry} renderOrder={4}>
-        <lineBasicMaterial color={color} transparent opacity={active ? 0.42 : 0.08} depthTest={false} />
-      </line>
+      <primitive object={trailLine} />
 
       <group ref={markerGroup}>
         <mesh onClick={select} renderOrder={5}>
