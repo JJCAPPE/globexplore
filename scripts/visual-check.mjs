@@ -3,11 +3,13 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 const baseUrl = process.env.BASE_URL || 'https://globexplore.vercel.app';
+const expectedFeature = 'pole-lens-3d-v1';
 const outDir = path.resolve('artifacts/visual-check');
 await fs.mkdir(outDir, { recursive: true });
 
 const report = {
   baseUrl,
+  expectedFeature,
   checkedAt: new Date().toISOString(),
   status: 'pending',
   pages: [],
@@ -16,17 +18,20 @@ const report = {
 
 async function waitForDeployment() {
   let lastError = '';
-  for (let attempt = 1; attempt <= 36; attempt += 1) {
+  for (let attempt = 1; attempt <= 48; attempt += 1) {
     try {
-      const response = await fetch(baseUrl, { redirect: 'follow' });
-      if (response.ok) return response.status;
-      lastError = `HTTP ${response.status}`;
+      const response = await fetch(baseUrl, { redirect: 'follow', cache: 'no-store' });
+      const html = await response.text();
+      if (response.ok && html.includes(expectedFeature)) return response.status;
+      lastError = response.ok
+        ? `HTTP ${response.status}, feature marker not present`
+        : `HTTP ${response.status}`;
     } catch (error) {
       lastError = String(error);
     }
     await new Promise((resolve) => setTimeout(resolve, 5000));
   }
-  throw new Error(`Production URL never became ready: ${lastError}`);
+  throw new Error(`Production URL never exposed ${expectedFeature}: ${lastError}`);
 }
 
 function overlap(a, b) {
@@ -38,6 +43,16 @@ async function forceClick(locator) {
   if (!visible) return false;
   await locator.click({ force: true, timeout: 5000 });
   return true;
+}
+
+async function setRange(locator, value) {
+  await locator.evaluate((element, nextValue) => {
+    const input = element;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+    setter?.call(input, String(nextValue));
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  }, value);
 }
 
 async function inspectViewport(browser, spec) {
@@ -63,7 +78,7 @@ async function inspectViewport(browser, spec) {
 
   try {
     const response = await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
-    await page.locator('.appShell').waitFor({ state: 'visible', timeout: 15000 });
+    await page.locator(`[data-feature="${expectedFeature}"]`).waitFor({ state: 'visible', timeout: 20000 });
     await page.locator('canvas').waitFor({ state: 'visible', timeout: 15000 });
     await page.waitForTimeout(1400);
 
@@ -74,6 +89,7 @@ async function inspectViewport(browser, spec) {
     const canvasBox = await page.locator('canvas').boundingBox();
     const metricsBox = await page.locator('.metrics').boundingBox();
     const controlsBox = await page.locator('.controlDock').boundingBox();
+    const poleLensBox = await page.locator('.poleLensPanel').boundingBox().catch(() => null);
     const lensBox = await page.locator('.lensPanel').boundingBox().catch(() => null);
     const viewport = page.viewportSize();
     const documentSize = await page.evaluate(() => ({
@@ -85,7 +101,8 @@ async function inspectViewport(browser, spec) {
       ['canvas', canvasBox],
       ['metrics', metricsBox],
       ['controls', controlsBox],
-      ['lens', lensBox],
+      ['3d-pole-lens', poleLensBox],
+      ['2d-axis-lens', lensBox],
     ].filter((entry) => entry[1]);
     const outside = criticalBoxes
       .filter(([, box]) => box.left < -1 || box.top < -1 || box.right > viewport.width + 1 || box.bottom > viewport.height + 1)
@@ -93,10 +110,47 @@ async function inspectViewport(browser, spec) {
 
     const overlaps = [];
     if (metricsBox && controlsBox && overlap(metricsBox, controlsBox)) overlaps.push('metrics-controls');
-    if (lensBox && controlsBox && overlap(lensBox, controlsBox)) overlaps.push('lens-controls');
-    if (lensBox && metricsBox && overlap(lensBox, metricsBox)) overlaps.push('lens-metrics');
+    if (poleLensBox && controlsBox && overlap(poleLensBox, controlsBox)) overlaps.push('3d-pole-lens-controls');
+    if (poleLensBox && metricsBox && overlap(poleLensBox, metricsBox)) overlaps.push('3d-pole-lens-metrics');
+    if (lensBox && controlsBox && overlap(lensBox, controlsBox)) overlaps.push('2d-axis-lens-controls');
+    if (lensBox && metricsBox && overlap(lensBox, metricsBox)) overlaps.push('2d-axis-lens-metrics');
 
-    console.log(`[visual-check] ${spec.name}: checking axis lens`);
+    console.log(`[visual-check] ${spec.name}: checking 3D pole lens`);
+    const poleLensPanel = page.locator('.poleLensPanel');
+    if (!(await poleLensPanel.isVisible().catch(() => false))) {
+      await forceClick(page.locator('.poleLensTrigger'));
+      await page.waitForTimeout(350);
+    }
+
+    if (await poleLensPanel.isVisible().catch(() => false)) {
+      const beforeMetric = (await page.locator('.metricPrimary strong').first().innerText()).trim();
+      const beforeMultiplier = await poleLensPanel.getAttribute('data-visual-multiplier');
+      await setRange(page.locator('input[aria-label="3D pole magnification"]'), 12);
+      await page.waitForTimeout(400);
+      const afterMetric = (await page.locator('.metricPrimary strong').first().innerText()).trim();
+      const afterMultiplier = await poleLensPanel.getAttribute('data-visual-multiplier');
+      const displayAngle = Number(await poleLensPanel.getAttribute('data-display-angle'));
+
+      if (beforeMetric !== afterMetric) {
+        report.errors.push(`${spec.name}: physical metric changed under 3D magnification (${beforeMetric} → ${afterMetric})`);
+      }
+      if (beforeMultiplier === afterMultiplier) {
+        report.errors.push(`${spec.name}: 3D magnification slider did not change the rendered scale (${beforeMultiplier})`);
+      }
+      if (!Number.isFinite(displayAngle) || displayAngle <= 0.1 || displayAngle > 24.001) {
+        report.errors.push(`${spec.name}: invalid 3D rendered pole angle (${displayAngle})`);
+      }
+
+      await forceClick(page.locator('.poleCameraModes button').filter({ hasText: /North focus/i }));
+      await page.waitForTimeout(spec.reducedMotion ? 150 : 950);
+      await page.screenshot({ path: path.join(outDir, `${spec.name}-3d-pole-lens.png`), fullPage: false });
+      await forceClick(page.locator('.poleLensHead button'));
+      await page.waitForTimeout(280);
+    } else {
+      report.errors.push(`${spec.name}: 3D pole lens could not be opened`);
+    }
+
+    console.log(`[visual-check] ${spec.name}: checking 2D axis lens`);
     const lensPanel = page.locator('.lensPanel');
     if (!(await lensPanel.isVisible().catch(() => false))) {
       await forceClick(page.locator('.lensTrigger'));
@@ -113,11 +167,11 @@ async function inspectViewport(browser, spec) {
         await page.waitForTimeout(120);
       }
       const after = (await page.locator('.metricPrimary strong').first().innerText()).trim();
-      if (before !== after) report.errors.push(`${spec.name}: physical metric changed when lens magnification changed (${before} → ${after})`);
+      if (before !== after) report.errors.push(`${spec.name}: physical metric changed when 2D magnification changed (${before} → ${after})`);
       await forceClick(page.locator('.lensHead button'));
       await page.waitForTimeout(250);
     } else {
-      report.errors.push(`${spec.name}: axis lens could not be opened`);
+      report.errors.push(`${spec.name}: 2D axis lens could not be opened`);
     }
 
     console.log(`[visual-check] ${spec.name}: checking transfer interaction`);
@@ -139,7 +193,7 @@ async function inspectViewport(browser, spec) {
       report.errors.push(`${spec.name}: model information control is not available`);
     }
 
-    const requiredText = ['GLOBEXPLORE', 'FIGURE POLE SHIFT', 'Axis lens'];
+    const requiredText = ['GLOBEXPLORE', 'FIGURE POLE SHIFT', '3D pole lens', '2D axis lens'];
     const missingText = requiredText.filter((value) => !text.includes(value));
     if (!response?.ok()) report.errors.push(`${spec.name}: navigation returned ${response?.status()}`);
     if (!primary || primary === '0 m') report.errors.push(`${spec.name}: primary pole shift is empty or collapsed to zero (${primary || 'empty'})`);
@@ -165,6 +219,7 @@ async function inspectViewport(browser, spec) {
       canvas: canvasBox,
       metrics: metricsBox,
       controls: controlsBox,
+      poleLens: poleLensBox,
       lens: lensBox,
     });
     console.log(`[visual-check] ${spec.name}: complete`);
