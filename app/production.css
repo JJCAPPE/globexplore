@@ -1,0 +1,159 @@
+/* Evidence-driven production refinement layered after globals.css. */
+.lensBackdrop {
+  display: none;
+}
+
+.benchmarkContext {
+  padding: 13px 16px 15px;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(98, 220, 255, 0.035), transparent);
+}
+
+.benchmarkHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.benchmarkHead span {
+  font: 500 8px/1 var(--font-geist-mono);
+  letter-spacing: 0.11em;
+  color: var(--muted);
+}
+
+.benchmarkHead small {
+  font: 500 7px/1 var(--font-geist-mono);
+  letter-spacing: 0.07em;
+  color: #62737b;
+  text-transform: uppercase;
+}
+
+.benchmarkRows {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.benchmarkRows span {
+  min-width: 0;
+  padding: 8px 7px;
+  border: 1px solid rgba(157, 205, 224, 0.1);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.018);
+  color: #778890;
+  font-size: 7px;
+  line-height: 1.25;
+  text-align: center;
+}
+
+.benchmarkRows b {
+  display: block;
+  margin-bottom: 4px;
+  color: #d9e7eb;
+  font: 540 11px/1 var(--font-geist-mono);
+}
+
+.benchmarkContext p {
+  margin: 9px 0 0;
+  color: #65767e;
+  font-size: 8px;
+  line-height: 1.45;
+}
+
+@media (min-width: 1101px) {
+  .lensPanel {
+    right: 342px;
+    bottom: 130px;
+  }
+}
+
+@media (min-width: 981px) and (max-width: 1100px) {
+  .lensPanel {
+    right: 342px;
+    bottom: 122px;
+  }
+
+  .benchmarkContext {
+    display: none;
+  }
+}
+
+@media (min-width: 701px) and (max-width: 980px) {
+  .lensPanel {
+    right: 294px;
+    bottom: 122px;
+  }
+
+  .benchmarkContext {
+    display: none;
+  }
+}
+
+@media (max-width: 700px) {
+  .benchmarkContext {
+    display: none;
+  }
+
+  .lensBackdrop {
+    display: block;
+    position: absolute;
+    z-index: 11;
+    inset: 64px 0 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: rgba(1, 4, 6, 0.74);
+    backdrop-filter: blur(9px);
+    cursor: pointer;
+  }
+
+  .lensPanel {
+    display: flex;
+    flex-direction: column;
+    z-index: 12;
+    top: 74px;
+    right: 10px;
+    bottom: 10px;
+    left: 10px;
+    width: auto;
+    max-height: none;
+    border-radius: 20px;
+  }
+
+  .lensViz {
+    flex: 1 1 auto;
+    height: auto;
+    min-height: 230px;
+  }
+
+  .lensViz .r1 {
+    width: min(180px, 42vw);
+    height: min(180px, 42vw);
+  }
+
+  .lensViz .r2 {
+    width: min(320px, 74vw);
+    height: min(320px, 74vw);
+  }
+
+  .lensExplain {
+    padding: 10px 13px 12px;
+  }
+}
+
+@media (max-width: 700px) and (max-height: 700px) {
+  .lensPanel {
+    top: 68px;
+    bottom: 8px;
+  }
+
+  .lensViz {
+    min-height: 190px;
+  }
+
+  .lensExplain {
+    display: none;
+  }
+}
