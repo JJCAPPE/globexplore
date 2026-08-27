@@ -1,0 +1,95 @@
+/* Tablet-specific pole-lens docking. Keeps the control surface in the UI gutter
+   instead of covering the visible Earth on iPad-class landscape viewports. */
+
+@media (min-width: 701px) and (max-width: 1100px) {
+  .poleLensPanel {
+    right: auto;
+    bottom: auto;
+    left: 18px;
+    top: 350px;
+    width: 220px;
+    max-height: calc(100dvh - 492px);
+    border-radius: 14px;
+  }
+
+  .poleLensHead {
+    min-height: 44px;
+    padding-left: 12px;
+  }
+
+  .poleLensHead strong {
+    font-size: 10px;
+  }
+
+  .poleCameraModes {
+    padding: 5px;
+  }
+
+  .poleCameraModes button {
+    padding: 6px 4px;
+    gap: 4px;
+    font-size: 8px;
+  }
+
+  .poleScaleControl {
+    padding: 8px 10px 7px;
+  }
+
+  .poleScaleControl > input {
+    margin: 7px 0 5px;
+  }
+
+  .poleReadouts > div {
+    padding: 9px 10px;
+  }
+
+  .poleReadouts strong {
+    font-size: 12px;
+  }
+
+  .poleReadouts small {
+    font-size: 7px;
+  }
+
+  .poleLensLegend,
+  .poleScaleStatus {
+    display: none;
+  }
+
+  /* The 3D lens already identifies all three axes, so remove the redundant
+     lower-left legend while the dock is open and keep the globe unobstructed. */
+  .appShell:has(.poleLensPanel) .axisLegend {
+    opacity: 0;
+    pointer-events: none;
+  }
+}
+
+@media (min-width: 981px) and (max-width: 1100px) and (max-height: 820px) {
+  .poleLensPanel {
+    top: 334px;
+    max-height: calc(100dvh - 470px);
+  }
+
+  .poleLensHead {
+    min-height: 40px;
+  }
+
+  .poleScaleControl {
+    padding-top: 6px;
+    padding-bottom: 5px;
+  }
+
+  .poleReadouts > div {
+    padding-top: 7px;
+    padding-bottom: 7px;
+  }
+}
+
+@media (min-width: 701px) and (max-width: 980px) {
+  .poleLensPanel {
+    top: 122px;
+    left: 14px;
+    width: 210px;
+    max-height: calc(100dvh - 270px);
+  }
+}
