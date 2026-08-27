@@ -53,8 +53,24 @@ async function waitForDeployment(browser) {
   throw new Error(`Production URL never rendered ${expectedFeature}: ${lastError}`);
 }
 
+function edges(box) {
+  return {
+    left: box.x,
+    top: box.y,
+    right: box.x + box.width,
+    bottom: box.y + box.height,
+  };
+}
+
 function overlap(a, b) {
-  return !(a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top);
+  const first = edges(a);
+  const second = edges(b);
+  return !(
+    first.right <= second.left ||
+    second.right <= first.left ||
+    first.bottom <= second.top ||
+    second.bottom <= first.top
+  );
 }
 
 async function forceClick(locator) {
@@ -124,7 +140,15 @@ async function inspectViewport(browser, spec) {
       ['2d-axis-lens', lensBox],
     ].filter((entry) => entry[1]);
     const outside = criticalBoxes
-      .filter(([, box]) => box.left < -1 || box.top < -1 || box.right > viewport.width + 1 || box.bottom > viewport.height + 1)
+      .filter(([, box]) => {
+        const bounds = edges(box);
+        return (
+          bounds.left < -1 ||
+          bounds.top < -1 ||
+          bounds.right > viewport.width + 1 ||
+          bounds.bottom > viewport.height + 1
+        );
+      })
       .map(([name]) => name);
 
     const overlaps = [];
